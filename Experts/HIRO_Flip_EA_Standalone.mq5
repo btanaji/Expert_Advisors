@@ -7,22 +7,30 @@
 //|  pressure) is computed internally each bar. Plain AP logic only  |
 //|  - no trend filter.                                                |
 //|                                                                    |
-//|  Entry rules:                                                     |
-//|   BUY : the HIRO pseudo-candle flips from red to green            |
-//|         (previous closed bar bearish, current closed bar bullish).|
-//|   SELL: the HIRO pseudo-candle flips from green to red.           |
+//|  Entry rule (STRADDLE): on any HIRO flip (red->green or            |
+//|  green->red), open BOTH a Buy and a Sell simultaneously.           |
+//|  Requires a hedging-mode MT5 account (both legs coexist on the     |
+//|  same symbol) - on a netting account the two legs would simply     |
+//|  cancel out.                                                       |
 //|                                                                    |
-//|  SL: placed InpSlBufferPoints points beyond entry, on the side    |
-//|      appropriate to trade direction.                               |
-//|  Trailing (optional, InpTrailEnabled): trail SL by the buffer     |
-//|      distance once price has moved InpTrailPips in favor, in      |
-//|      InpTrailPips increments.                                      |
-//|  If trailing is disabled, exit only on an opposite flip signal.    |
+//|  SL: each leg's initial SL is placed InpSlBufferPoints points      |
+//|      beyond its own entry, on the correct side for its direction.  |
+//|  Breakeven + close-the-other-leg (CTC): once EITHER leg reaches    |
+//|      InpBreakevenPips profit, that leg's SL is moved to its own    |
+//|      entry price (breakeven) and the OTHER (still-pending) leg is  |
+//|      closed immediately.                                           |
+//|  Surviving leg: from that point on it is managed exactly like the  |
+//|      plain flip EA - optional pip-increment trailing              |
+//|      (InpTrailEnabled/InpTrailPips) beyond the breakeven point, or |
+//|      if trailing is disabled, held until an opposite flip signal   |
+//|      closes it.                                                    |
+//|  A new straddle is only opened when no legs from a previous        |
+//|      straddle are still open.                                      |
 //|                                                                    |
 //|  Visual representation is drawn directly by the EA (no separate   |
 //|  indicator/sub-window needed): a live label (top-left) showing    |
 //|  the current HIRO z-value / candle color, and up/down arrow        |
-//|  markers on bars where a Buy/Sell was triggered.                   |
+//|  markers on bars where a flip (straddle entry) was triggered.      |
 //+------------------------------------------------------------------+
 #property copyright "Custom EA - standalone (no indicator dependency)"
 #property version   "1.00"
@@ -43,12 +51,13 @@ input int    InpAtrLen      = 14;     // ATR length
 //====================================================================
 // Trading params
 //====================================================================
-input double  InpLots            = 0.10;        // Trade volume (lots)
-input int     InpSlBufferPoints  = 200;          // SL buffer, points beyond entry
-input bool    InpTrailEnabled    = true;         // Enable SL trailing (else exit on reversal only)
-input double  InpTrailPips       = 15;           // Trail step, in pips
-input ulong   InpMagic           = 20260820;     // Magic number
-input int     InpSlippage        = 30;           // Max slippage, points
+input double  InpLots             = 0.10;        // Trade volume per leg (lots)
+input int     InpSlBufferPoints   = 200;          // SL buffer, points beyond entry
+input double  InpBreakevenPips    = 20;           // Profit (pips) to move SL to breakeven + close other leg
+input bool    InpTrailEnabled     = true;         // Enable SL trailing on survivor (else exit on reversal only)
+input double  InpTrailPips        = 15;           // Trail step, in pips
+input ulong   InpMagic            = 20260820;     // Magic number
+input int     InpSlippage         = 30;           // Max slippage, points
 
 //====================================================================
 // Visual params
@@ -59,6 +68,10 @@ input bool InpShowMarkers = true;   // Show Buy/Sell flip arrows on chart
 CTrade   trade;
 datetime lastBarTime = 0;
 string   labelName = "HIRO_EA_Label";
+
+//--- current straddle state (0 = no leg / not open)
+ulong buyTicket  = 0;
+ulong sellTicket = 0;
 
 //+------------------------------------------------------------------+
 //| HIRO Proxy (Flow Pressure) computation for the last N chart bars |
@@ -232,42 +245,103 @@ double PipSize()
    return (digits == 3 || digits == 5) ? point*10 : point;
   }
 
-bool HasOpenPosition(ENUM_POSITION_TYPE &type)
+//+------------------------------------------------------------------+
+//| Ticket-based helpers - a straddle needs two simultaneous          |
+//| positions on the same symbol, so PositionSelect(_Symbol) (which   |
+//| only ever sees the net position) is not enough; look positions up |
+//| by ticket instead.                                                 |
+//+------------------------------------------------------------------+
+bool PositionAlive(ulong ticket)
   {
-   if(!PositionSelect(_Symbol))
-      return(false);
-   if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagic)
-      return(false);
-   type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-   return(true);
+   if(ticket == 0) return(false);
+   return(PositionSelectByTicket(ticket));
   }
 
-void OpenBuy()
+void OpenStraddle()
   {
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double sl = ask - InpSlBufferPoints*point;
-   trade.PositionOpen(_Symbol, ORDER_TYPE_BUY, InpLots, ask, sl, 0.0, "HIRO EA Buy");
-  }
-
-void OpenSell()
-  {
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double sl = bid + InpSlBufferPoints*point;
-   trade.PositionOpen(_Symbol, ORDER_TYPE_SELL, InpLots, bid, sl, 0.0, "HIRO EA Sell");
+
+   double slBuy  = ask - InpSlBufferPoints*point;
+   double slSell = bid + InpSlBufferPoints*point;
+
+   if(trade.PositionOpen(_Symbol, ORDER_TYPE_BUY, InpLots, ask, slBuy, 0.0, "HIRO Straddle Buy"))
+      buyTicket = trade.ResultOrder();
+   if(trade.PositionOpen(_Symbol, ORDER_TYPE_SELL, InpLots, bid, slSell, 0.0, "HIRO Straddle Sell"))
+      sellTicket = trade.ResultOrder();
   }
 
-void ClosePosition()
+void ClosePositionByTicket(ulong &ticket)
   {
-   trade.PositionClose(_Symbol);
+   if(ticket == 0) return;
+   if(PositionSelectByTicket(ticket))
+      trade.PositionClose(ticket);
+   ticket = 0;
   }
 
-void TrailStop()
+//+------------------------------------------------------------------+
+//| While both legs of a straddle are still open: once either leg    |
+//| reaches InpBreakevenPips profit, move that leg's SL to its own   |
+//| entry price (breakeven / CTC) and close the other leg.           |
+//+------------------------------------------------------------------+
+void ManageStraddleBreakeven()
+  {
+   if(buyTicket == 0 || sellTicket == 0)
+      return; // already resolved to a single survivor (or none)
+
+   double pip = PipSize();
+   double beDist = InpBreakevenPips*pip;
+
+   if(PositionSelectByTicket(buyTicket))
+     {
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(bid - openPrice >= beDist)
+        {
+         double curTP = PositionGetDouble(POSITION_TP);
+         trade.PositionModify(buyTicket, openPrice, curTP);
+         ClosePositionByTicket(sellTicket);
+         return;
+        }
+     }
+   else
+      buyTicket = 0; // stopped out naturally
+
+   if(PositionSelectByTicket(sellTicket))
+     {
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(openPrice - ask >= beDist)
+        {
+         double curTP = PositionGetDouble(POSITION_TP);
+         trade.PositionModify(sellTicket, openPrice, curTP);
+         ClosePositionByTicket(buyTicket);
+         return;
+        }
+     }
+   else
+      sellTicket = 0; // stopped out naturally
+  }
+
+//+------------------------------------------------------------------+
+//| Trail the surviving leg (same pip-increment logic as the plain   |
+//| flip EA), only once the other leg has already been resolved.     |
+//+------------------------------------------------------------------+
+void TrailSurvivor()
   {
    if(!InpTrailEnabled) return;
-   if(!PositionSelect(_Symbol)) return;
-   if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagic) return;
+
+   ulong ticket = 0;
+   if(buyTicket != 0 && sellTicket == 0) ticket = buyTicket;
+   else if(sellTicket != 0 && buyTicket == 0) ticket = sellTicket;
+   else return; // no lone survivor yet
+
+   if(!PositionSelectByTicket(ticket))
+     {
+      if(ticket == buyTicket) buyTicket = 0; else sellTicket = 0;
+      return;
+     }
 
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    double pip   = PipSize();
@@ -288,7 +362,7 @@ void TrailStop()
          double steps = MathFloor(profit / trailDist);
          double newSL = openPrice + steps*trailDist - bufDist;
          if(newSL > curSL + point)
-            trade.PositionModify(_Symbol, newSL, curTP);
+            trade.PositionModify(ticket, newSL, curTP);
         }
      }
    else if(type == POSITION_TYPE_SELL)
@@ -300,7 +374,7 @@ void TrailStop()
          double steps = MathFloor(profit / trailDist);
          double newSL = openPrice - steps*trailDist + bufDist;
          if(curSL == 0.0 || newSL < curSL - point)
-            trade.PositionModify(_Symbol, newSL, curTP);
+            trade.PositionModify(ticket, newSL, curTP);
         }
      }
   }
@@ -321,7 +395,12 @@ bool IsNewBar()
 
 void OnTick()
   {
-   TrailStop();
+   ManageStraddleBreakeven();
+   TrailSurvivor();
+
+   //--- keep ticket bookkeeping fresh (e.g. survivor's SL got hit)
+   if(buyTicket != 0 && !PositionAlive(buyTicket))   buyTicket = 0;
+   if(sellTicket != 0 && !PositionAlive(sellTicket)) sellTicket = 0;
 
    if(!IsNewBar())
       return;
@@ -342,40 +421,25 @@ void OnTick()
    bool flipToGreen = (!bullPrev && bullNow);
    bool flipToRed   = (bullPrev && !bullNow);
 
-   bool buySignal  = flipToGreen;
-   bool sellSignal = flipToRed;
-
    UpdateLabel(zArr[n-1], bullNow);
 
    if(flipToGreen) DrawSignalMarker(timeArr[n-1], true);
    if(flipToRed)   DrawSignalMarker(timeArr[n-1], false);
 
-   ENUM_POSITION_TYPE posType;
-   bool hasPos = HasOpenPosition(posType);
+   bool straddleActive = (buyTicket != 0 || sellTicket != 0);
 
-   if(hasPos)
+   //--- reversal exit for a lone survivor when trailing is disabled
+   if(straddleActive && !InpTrailEnabled)
      {
-      if(!InpTrailEnabled)
-        {
-         if(posType == POSITION_TYPE_BUY && flipToRed)
-           {
-            ClosePosition();
-            hasPos = false;
-           }
-         else if(posType == POSITION_TYPE_SELL && flipToGreen)
-           {
-            ClosePosition();
-            hasPos = false;
-           }
-        }
+      if(buyTicket != 0 && sellTicket == 0 && flipToRed)
+         ClosePositionByTicket(buyTicket);
+      else if(sellTicket != 0 && buyTicket == 0 && flipToGreen)
+         ClosePositionByTicket(sellTicket);
+      straddleActive = (buyTicket != 0 || sellTicket != 0);
      }
 
-   if(!hasPos)
-     {
-      if(buySignal)
-         OpenBuy();
-      else if(sellSignal)
-         OpenSell();
-     }
+   //--- open a fresh straddle only once any previous one is fully resolved
+   if(!straddleActive && (flipToGreen || flipToRed))
+      OpenStraddle();
   }
 //+------------------------------------------------------------------+

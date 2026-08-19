@@ -50,19 +50,27 @@ It has no dependency on any other file — the HIRO pseudo-candle series
 (z-scored, ATR-filtered, volume-weighted cumulative directional pressure) is
 computed internally in this one file. Plain AP logic only, no trend filter.
 
-**Entry rules**:
-- **Buy**: the HIRO pseudo-candle flips from red to green (previous closed
-  bar bearish, current closed bar bullish).
-- **Sell**: the HIRO pseudo-candle flips from green to red.
+**Entry rule (straddle)**: on any HIRO flip (red→green or green→red), the EA
+opens **both** a Buy and a Sell simultaneously (equal `InpLots` each).
 
-**SL / trailing / exit**: identical mechanics to the OCC EA above —
-`InpSlBufferPoints` point buffer on the correct side of entry, optional
-`InpTrailEnabled` trailing in `InpTrailPips` increments, and reversal-flip
-exit when trailing is disabled.
+> **Requires a hedging-mode MT5 account.** Both legs must coexist on the same
+> symbol at once — on a netting account they would simply cancel each other
+> out. Check your account type before running this EA.
+
+**Breakeven + close-the-other-leg (CTC)**: once *either* leg reaches
+`InpBreakevenPips` profit, that leg's SL is moved to its own entry price
+(breakeven) and the other, still-pending leg is closed immediately.
+
+**Surviving leg management**: from that point it's managed exactly like a
+single-position flip trade — optional pip-increment trailing
+(`InpTrailEnabled` / `InpTrailPips`, same mechanics as before) beyond the
+breakeven point, or if trailing is disabled, held until an opposite flip
+signal closes it. A new straddle is only opened once any previous one has
+fully resolved (both legs closed).
 
 **Visual representation**: built into the EA itself (no separate indicator
 needed) — a live label showing the current HIRO z-value and candle color,
-plus up/down arrows on bars where the candle flipped color.
+plus up/down arrows on bars where a straddle was triggered.
 
 ## Installation
 
