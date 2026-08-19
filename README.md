@@ -1,4 +1,4 @@
-# OCC Alert MT5 Expert Advisor
+# MT5 Expert Advisors
 
 MT5 port of the "Open Close Cross Alert R6.2" Pine Script indicator, plus an
 Expert Advisor that trades its signals.
@@ -42,11 +42,42 @@ Expert Advisor that trades its signals.
 - **Reversal exit**: when trailing is disabled, the only exit is an opposite
   OCC signal, which closes the open position.
 
+## HIRO Proxy Flip EA (second strategy)
+
+`Experts/HIRO_Flip_EA_Standalone.mq5` is a separate, fully self-contained EA
+ported from the "AP Capital – HIRO Proxy (Flow Pressure)" Pine Script (v6).
+It has no dependency on any other file — the HIRO pseudo-candle series
+(z-scored, ATR-filtered, volume-weighted cumulative directional pressure) and
+the optional OCC trend filter are both computed internally in this one file.
+
+**Entry rules**:
+- **Buy**: the HIRO pseudo-candle flips from red to green (previous closed
+  bar bearish, current closed bar bullish).
+- **Sell**: the HIRO pseudo-candle flips from green to red.
+
+**Optional trend filter** (`InpUseTrendFilter`): when enabled, trades are
+restricted by the OCC line's sign — OCC above zero (green/uptrend) allows
+buys only, OCC below zero (red/downtrend) allows sells only. Disabled by
+default; when the filter is on and its data can't be computed for a bar, the
+EA fails safe and blocks new entries for that bar rather than trading
+unfiltered.
+
+**SL / trailing / exit**: identical mechanics to the OCC EA above —
+`InpSlBufferPoints` point buffer on the correct side of entry, optional
+`InpTrailEnabled` trailing in `InpTrailPips` increments, and reversal-flip
+exit when trailing is disabled.
+
+**Visual representation**: built into the EA itself (no separate indicator
+needed) — a live label showing the current HIRO z-value, candle color, and
+trend-filter state, plus up/down arrows on bars where the candle flipped
+color.
+
 ## Installation
 
 ### Option A — Standalone EA (recommended, no indicator dependency)
 
-1. Copy `Experts/OCC_EA_Standalone.mq5` into your MT5 `MQL5/Experts/` folder.
+1. Copy `Experts/OCC_EA_Standalone.mq5` (and/or `Experts/HIRO_Flip_EA_Standalone.mq5`)
+   into your MT5 `MQL5/Experts/` folder.
 2. Compile it in MetaEditor.
 3. Attach it to a chart, or run it directly in the Strategy Tester — no other
    file is required.
