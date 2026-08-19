@@ -47,20 +47,13 @@ Expert Advisor that trades its signals.
 `Experts/HIRO_Flip_EA_Standalone.mq5` is a separate, fully self-contained EA
 ported from the "AP Capital – HIRO Proxy (Flow Pressure)" Pine Script (v6).
 It has no dependency on any other file — the HIRO pseudo-candle series
-(z-scored, ATR-filtered, volume-weighted cumulative directional pressure) and
-the optional OCC trend filter are both computed internally in this one file.
+(z-scored, ATR-filtered, volume-weighted cumulative directional pressure) is
+computed internally in this one file. Plain AP logic only, no trend filter.
 
 **Entry rules**:
 - **Buy**: the HIRO pseudo-candle flips from red to green (previous closed
   bar bearish, current closed bar bullish).
 - **Sell**: the HIRO pseudo-candle flips from green to red.
-
-**Optional trend filter** (`InpUseTrendFilter`): when enabled, trades are
-restricted by the OCC line's sign — OCC above zero (green/uptrend) allows
-buys only, OCC below zero (red/downtrend) allows sells only. Disabled by
-default; when the filter is on and its data can't be computed for a bar, the
-EA fails safe and blocks new entries for that bar rather than trading
-unfiltered.
 
 **SL / trailing / exit**: identical mechanics to the OCC EA above —
 `InpSlBufferPoints` point buffer on the correct side of entry, optional
@@ -68,9 +61,8 @@ unfiltered.
 exit when trailing is disabled.
 
 **Visual representation**: built into the EA itself (no separate indicator
-needed) — a live label showing the current HIRO z-value, candle color, and
-trend-filter state, plus up/down arrows on bars where the candle flipped
-color.
+needed) — a live label showing the current HIRO z-value and candle color,
+plus up/down arrows on bars where the candle flipped color.
 
 ## Installation
 
