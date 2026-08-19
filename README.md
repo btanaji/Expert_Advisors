@@ -16,6 +16,15 @@ Expert Advisor that trades its signals.
 - `Experts/OCC_EA.mq5` — the Expert Advisor. Attaches `OCC_Alert` to the chart
   on init (`ChartIndicatorAdd`) so the indicator is visible while the EA
   trades, and reads its buffer via `iCustom`/`CopyBuffer`.
+- `Experts/OCC_EA_Standalone.mq5` — **recommended for backtesting.** A fully
+  self-contained version of the EA that has no dependency on
+  `OCC_Alert.mq5`/`iCustom()` at all — it computes the OCC line internally
+  every bar. This avoids the "indicator file read error" / stale-`.ex5`
+  issues `iCustom` can hit in the Strategy Tester when the indicator isn't
+  compiled or in sync with the EA. It still gives visual feedback on the
+  chart without needing a separate indicator sub-window: a live label
+  (top-left) showing the current OCC value/trend, and up/down arrow markers
+  drawn on bars where a Buy/Sell was triggered.
 
 ## Strategy rules implemented
 
@@ -35,11 +44,25 @@ Expert Advisor that trades its signals.
 
 ## Installation
 
+### Option A — Standalone EA (recommended, no indicator dependency)
+
+1. Copy `Experts/OCC_EA_Standalone.mq5` into your MT5 `MQL5/Experts/` folder.
+2. Compile it in MetaEditor.
+3. Attach it to a chart, or run it directly in the Strategy Tester — no other
+   file is required.
+
+### Option B — EA + separate indicator (indicator visible in its own sub-window)
+
 1. Copy `Indicators/OCC_Alert.mq5` into your MT5 `MQL5/Indicators/` folder.
 2. Copy `Experts/OCC_EA.mq5` into your MT5 `MQL5/Experts/` folder.
 3. Compile both in MetaEditor (compile the indicator first).
 4. Attach `OCC_EA` to a chart. It will automatically load `OCC_Alert` onto the
    chart for visual confirmation of signals.
+
+Note: with Option B, both files must always be recompiled/kept in sync — if
+you change the indicator's inputs or buffers, update the EA's `iCustom()`
+call and buffer index to match, and make sure `OCC_Alert.ex5` is present and
+current before backtesting `OCC_EA`. Option A avoids this entirely.
 
 ## Notes / deviations from the Pine script
 
