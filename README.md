@@ -72,6 +72,73 @@ fully resolved (both legs closed).
 needed) — a live label showing the current HIRO z-value and candle color,
 plus up/down arrows on bars where a straddle was triggered.
 
+## Mean Reversion Pro EA (third strategy)
+
+`Experts/MeanReversionPro_EA_Standalone.mq5` is a fully self-contained,
+multi-engine scalping EA modeled on a "Mean Reversion Pro" style system. No
+external indicator/`iCustom` dependency — Bollinger Bands, RSI, Stochastic and
+ATR use MT5's built-in indicators (`iBands`/`iRSI`/`iStochastic`/`iATR`,
+native to the terminal, nothing to install); the Nadaraya-Watson kernel
+envelope and the Gann ray pivot detection are computed directly in this one
+file.
+
+**Signal engines** (each independently toggleable):
+- **Bollinger Bands** — `InpUseBB`, standard period/multiplier/price.
+- **Nadaraya-Watson envelope** — `InpUseNW`, a *causal* (backward-looking
+  only) Gaussian kernel regression of price, with an ATR-based envelope. This
+  is a non-repainting analogue of the usual centered/repainting NW kernel —
+  it only ever uses bars up to and including the evaluated bar.
+- **RSI** / **Stochastic** — `InpUseRSI`/`InpUseStoch`, each acting as a
+  confirmation filter by default, or as an independent signal source when
+  `InpRSIAsSignal`/`InpStochAsSignal` is enabled.
+
+**Entry mode** (`InpSignalMode`, applies to the BB and NW engines):
+- `MODE_WICK` — wick pierces the band, close snaps back inside (rejection).
+- `MODE_CLOSE` — candle closes fully outside the band (classic confirmation).
+- `MODE_BOTH` — either condition fires.
+
+A raw signal fires when **any** enabled engine/source triggers it (OR logic).
+It's then gated by every enabled *filter*: RSI/Stochastic must confirm
+oversold/overbought (unless configured as a signal source instead), and the
+**Gann Ray** (`InpUseGann`) must agree with trade direction.
+
+**Gann Ray (MTF)**: finds the most recent fractal swing pivot on
+`InpGannPivotTF` (default M15) and projects a 1×1-style ray forward using a
+fraction of that timeframe's ATR as the "price per bar" unit — MT5 has no
+native chart-scale Gann angle, so this is a practical ATR-scaled
+approximation, not a literal geometric 1×1 angle. A rising ray allows longs
+only; a falling ray allows shorts only. If the pivot can't be computed for a
+bar, the EA fails safe and blocks new entries rather than trading unfiltered.
+
+**No repaint**: everything is evaluated exactly once per bar, on the last
+fully closed bar, the first tick after it closes — never recalculated on
+later ticks within that bar.
+
+**Trade management**: SL/TP are set from ATR multiples
+(`InpSL_ATR_Mult`/`InpTP_ATR_Mult` — tune these to your instrument/timeframe
+as the original system recommends), one position open at a time. Auto TP
+(green) and SL (red) zones plus a dashed gold entry line with a price label
+are drawn for every signal and are **never deleted**, so every historical
+signal stays visible for review, as specified.
+
+**Alerts**: on each new signal, optionally play a sound (`InpSoundAlert`,
+`InpSoundFile`), show a popup `Alert()` with entry/SL/TP/RR
+(`InpPopupAlert`), and/or send a push notification to the MetaTrader mobile
+app (`InpPushAlert` — requires the terminal's Notifications tab to be
+configured with your MetaQuotes ID). Alerts fire exactly once per signal.
+
+**Settings overview** (matching the original spec):
+- *BB only*: `InpUseBB=true`, `InpUseNW=false`, `InpUseRSI=false`,
+  `InpUseStoch=false`, `InpUseGann=false`.
+- *NW only*: `InpUseNW=true`, everything else off.
+- *RSI only*: `InpUseBB=false`, `InpUseNW=false`, `InpUseRSI=true`,
+  `InpRSIAsSignal=true`.
+- *Full system*: all engines on, RSI/Stochastic as filters
+  (`InpRSIAsSignal=false`, `InpStochAsSignal=false`), Gann on.
+
+Recommended timeframe M3–M5, Gann pivot timeframe M15 or H1, matching the
+original system's guidance.
+
 ## Installation
 
 ### Option A — Standalone EA (recommended, no indicator dependency)
