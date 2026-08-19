@@ -69,7 +69,7 @@ double PipSize()
 
 int OnInit()
   {
-   handleOCC = iCustom(_Symbol, Period(), "Indicators\\OCC_Alert",
+   handleOCC = iCustom(_Symbol, Period(), "OCC_Alert",
                         InpUseAltTF, InpAltTF, InpMAType, InpMAPeriod,
                         InpOffsetSigma, InpOffsetALMA, InpDelayOffset);
    if(handleOCC == INVALID_HANDLE)
