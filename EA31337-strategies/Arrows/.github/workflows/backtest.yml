@@ -1,0 +1,138 @@
+---
+name: Backtest
+
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+    branches:
+      - 'master'
+      - '*dev*'
+    paths-ignore:
+      - '*.md'
+      - '.git*'
+  push:
+    branches:
+      - 'master'
+      - '*dev*'
+    paths-ignore:
+      - '*.md'
+      - '.git*'
+
+jobs:
+  Compile-EA:
+    defaults:
+      run:
+        shell: powershell
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+      - uses: actions/checkout@v3
+        with:
+          path: Include/EA31337-classes
+          ref: v3.000.1
+          repository: EA31337/EA31337-classes
+      - name: Compile for MQL4
+        uses: fx31337/mql-compile-action@master
+        with:
+          include: .
+          init-platform: true
+          mt-version: 5.0.0.2361
+          path: Stg_Arrows.mq4
+          verbose: true
+      - uses: actions/checkout@v3
+        with:
+          path: indicators-other/Oscillators/Arrows/Include/EA31337-classes
+          ref: dev
+          repository: EA31337/EA31337-classes
+      - name: Compile strategy for MQL5
+        uses: fx31337/mql-compile-action@master
+        with:
+          include: .
+          mt-version: 5.0.0.2515
+          path: Stg_Arrows.mq5
+          verbose: true
+      - name: List compiled files
+        run: '(Get-ChildItem -Recurse -Path . -Include *.ex[45]).fullname'
+      - run: Get-Location
+      - name: Upload strategy artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: EA
+          path: '*.ex[45]'
+  Compile-Indicators:
+    defaults:
+      run:
+        shell: powershell
+        working-directory: indicators-other
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        file:
+          - indicators-other/Oscillators/Arrows/ATR_MA_Slope
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+      - uses: actions/checkout@v3
+        with:
+          path: Include/EA31337-classes
+          ref: v2.013
+          repository: EA31337/EA31337-classes
+      - name: Compile required indicator for MQL4
+        uses: fx31337/mql-compile-action@master
+        with:
+          include: .
+          init-platform: true
+          mt-version: 5.0.0.2361
+          path: ${{ matrix.file }}.mq4
+          verbose: true
+      - name: Compile required indicator for MQL5
+        uses: fx31337/mql-compile-action@master
+        with:
+          include: .
+          init-platform: true
+          mt-version: 5.0.0.2515
+          path: ${{ matrix.file }}.mq5
+          verbose: true
+      - name: List compiled files
+        run: '(Get-ChildItem -Recurse -Path . -Include *.ex[45]).fullname'
+      - run: Get-Location
+      - name: Upload indicator artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: Indicators
+          path: '**/*.ex[45]'
+  Test:
+    needs: [Compile-EA, Compile-Indicators]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        month: [1]
+        year: [2019, 2020]
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          path: .
+      - name: Run strategy
+        uses: ea31337/mql-tester-action@master
+        with:
+          RunOnStart: >-
+            ln -fsv /github/workspace/Indicators
+            "$TERMINAL_DIR/$MQL_DIR/Indicators"
+          BtDeposit: 100000
+          BtDest: ${{ github.workspace }}/_results
+          BtMonths: ${{ matrix.month }}
+          BtYears: ${{ matrix.year }}
+          OptFormatBrief: true
+          OptFormatJson: true
+          OptVerbose: true
+          TestExpert: Stg_Arrows
+          TestPeriod: M1
+          TestReportName: Report-${{ matrix.year }}-${{ matrix.month }}
+      - name: Upload results
+        uses: actions/upload-artifact@v2
+        with:
+          name: results
+          path: ${{ github.workspace }}/_results/*.*
