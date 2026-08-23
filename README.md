@@ -3,6 +3,21 @@
 MT5 port of the "Open Close Cross Alert R6.2" Pine Script indicator, plus an
 Expert Advisor that trades its signals.
 
+## EA31337 (vendored multi-strategy robot)
+
+`EA31337/` is a self-contained, flattened vendor copy of the
+[EA31337](https://github.com/EA31337/EA31337) multi-strategy trading robot,
+with its `EA31337-classes` (framework), `EA31337-strategies` (~70 strategy
+modules), `EA31337-strategies-meta`, and `EA31337-indicators` submodules
+already resolved into plain files inside it — a single directory you can
+copy straight into an MT5 data folder and compile, with nothing else to
+fetch. See [`EA31337/MT5_TESTING.md`](EA31337/MT5_TESTING.md) for the full
+build/backtest walkthrough (single strategy in isolation, full robot, or
+headless build via the included `Makefile`).
+
+This is a separate, independent project from the custom OCC/HIRO EAs
+documented below.
+
 ## Files
 
 - `Indicators/OCC_Alert.mq5` — the ported indicator. Computes an MA (SMA, EMA,
